@@ -2,16 +2,28 @@
 
 from __future__ import annotations
 
+import io
 import subprocess
 import sys
 import tkinter as tk
 from pathlib import Path
 from typing import Any, Optional
 
-from PIL import Image, ImageTk
+from PIL import Image
 
 from nd2_preview.contrast import normalize_and_composite
 from nd2_preview.core import PreviewFrame, read_preview_frame
+
+
+def pil_to_tk(image: Image.Image) -> tk.PhotoImage:
+    """Convert PIL Image to tk.PhotoImage using uncompressed PPM buffer.
+
+    Completely bypasses PIL's _imagingtk C extension, avoiding PyImagingPhoto
+    symbol lookup errors across standalone Python environments on macOS.
+    """
+    buf = io.BytesIO()
+    image.save(buf, format="PPM")
+    return tk.PhotoImage(data=buf.getvalue())
 
 
 def get_finder_selected_path() -> Optional[Path]:
@@ -70,7 +82,7 @@ class InteractiveViewer:
 
         self._current_frame: Optional[PreviewFrame] = None
         self._current_pil: Optional[Image.Image] = None
-        self._tk_img: Optional[ImageTk.PhotoImage] = None
+        self._tk_img: Optional[tk.PhotoImage] = None
 
         # Setup Tkinter UI
         self.root = tk.Tk()
@@ -247,7 +259,7 @@ class InteractiveViewer:
         nh = max(1, int(ih * scale))
 
         resized = self._current_pil.resize((nw, nh), Image.Resampling.BILINEAR)
-        self._tk_img = ImageTk.PhotoImage(resized)
+        self._tk_img = pil_to_tk(resized)
 
         self.canvas.delete("all")
         # Center image in canvas

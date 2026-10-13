@@ -65,6 +65,7 @@ def resolve_channel_index(
         )
 
     # String channel name (case-insensitive lookup)
+    # pyrefly: ignore [unnecessary-type-conversion]
     query = str(channel).strip().lower()
     for idx, name in enumerate(channel_names):
         if name.strip().lower() == query:

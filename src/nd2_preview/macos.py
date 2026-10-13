@@ -21,30 +21,44 @@ def get_cache_dir() -> Path:
 
 
 def show_preview(
-    image: Image.Image,
-    title: str = "preview",
+    image: Image.Image | list[Image.Image],
+    title: str | list[str] = "preview",
     wait: bool = False,
 ) -> subprocess.Popen[Any] | None:
-    """Display an image using macOS Quick Look, or gracefully fallback on other OSes.
+    """Display image(s) using macOS Quick Look, or gracefully fallback on other OSes.
+
+    When multiple images are provided, macOS Quick Look opens a carousel/gallery
+    where users can navigate sequentially using the Left/Right Arrow keys.
 
     Args:
-        image: PIL Image to display.
-        title: Base name for the cached preview file.
+        image: Single PIL Image or list of PIL Images to display.
+        title: Base name or list of base names for the cached preview files.
         wait: If True, blocks until the preview window is closed by the user.
 
     Returns:
         subprocess.Popen object if spawned asynchronously, or None if fallback was used.
     """
-    clean_title = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in title)
-    cache_path = get_cache_dir() / f"{clean_title}.png"
-    image.save(cache_path, format="PNG")
+    cache_dir = get_cache_dir()
+    imgs = image if isinstance(image, list) else [image]
+
+    if isinstance(title, list):
+        titles = title
+    else:
+        titles = [f"{title}_{i}" if len(imgs) > 1 else title for i in range(len(imgs))]
+
+    cache_paths: list[Path] = []
+    for img, t in zip(imgs, titles):
+        clean_title = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in t)
+        p = cache_dir / f"{clean_title}.png"
+        img.save(p, format="PNG")
+        cache_paths.append(p)
 
     is_macos = sys.platform == "darwin"
     has_qlmanage = shutil.which("qlmanage") is not None
 
     if is_macos and has_qlmanage:
         proc = subprocess.Popen(
-            ["qlmanage", "-p", str(cache_path)],
+            ["qlmanage", "-p", *[str(p) for p in cache_paths]],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
@@ -55,7 +69,7 @@ def show_preview(
     # Graceful fallback for non-macOS or headless environments
     if sys.platform.startswith("linux") and shutil.which("xdg-open"):
         proc = subprocess.Popen(
-            ["xdg-open", str(cache_path)],
+            ["xdg-open", str(cache_paths[0])],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
@@ -64,7 +78,8 @@ def show_preview(
         return proc
 
     # Universal PIL fallback
-    image.show(title=title)
+    for img, t in zip(imgs, titles):
+        img.show(title=t)
     return None
 
 
@@ -76,7 +91,7 @@ def get_services_dir() -> Path:
 def install_finder_action(action_name: str = "Preview with nd2-preview") -> Path:
     """Generate and install a native macOS Quick Action (.workflow) into ~/Library/Services/.
 
-    Enables right-clicking any .nd2 file in Finder -> Quick Actions -> 'Preview with nd2-preview'.
+    Enables right-clicking .nd2 file(s) in Finder -> Quick Actions -> 'Preview with nd2-preview'.
     The action automatically looks up nd2-preview across ~/.local/bin (uv tool), Homebrew, and PATH.
 
     Args:
@@ -98,13 +113,12 @@ def install_finder_action(action_name: str = "Preview with nd2-preview") -> Path
     # Shell script executed by Automator when file(s) are selected in Finder
     script = (
         'export PATH="$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"\n'
-        'for f in "$@"; do\n'
-        '    if command -v nd2-preview >/dev/null 2>&1; then\n'
-        '        nd2-preview view "$f"\n'
-        '    else\n'
-        '        python3 -m nd2_preview.cli view "$f"\n'
-        '    fi\n'
-        'done\n'
+        'if command -v nd2-preview >/dev/null 2>&1;\n'
+        'then\n'
+        '    nd2-preview view "$@"\n'
+        'else\n'
+        '    python3 -m nd2_preview.cli view "$@"\n'
+        'fi\n'
     )
 
     info_plist_data: dict[str, Any] = {

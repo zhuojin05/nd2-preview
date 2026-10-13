@@ -67,6 +67,9 @@ Repository = "https://github.com/zhuojin/nd2-preview.git"
 Issues = "https://github.com/zhuojin/nd2-preview/issues"
 
 
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"

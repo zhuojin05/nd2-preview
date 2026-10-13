@@ -13,8 +13,13 @@ from rich.console import Console
 from nd2_preview import __version__
 from nd2_preview.contrast import normalize_and_composite
 from nd2_preview.core import read_preview_frame
-from nd2_preview.macos import install_finder_action, show_preview, uninstall_finder_action
+from nd2_preview.macos import (
+    install_finder_action,
+    show_preview,
+    uninstall_finder_action,
+)
 from nd2_preview.metadata import inspect_metadata, print_metadata
+from nd2_preview.viewer import get_finder_selected_path, launch_viewer
 
 app = typer.Typer(
     name="nd2-preview",
@@ -50,14 +55,31 @@ def main(
     pass
 
 
+def collect_nd2_files(targets: list[Path], gallery: bool = False) -> list[Path]:
+    """Expand list of files and directories into a sorted list of .nd2 files."""
+    collected: list[Path] = []
+    for t in targets:
+        if t.is_dir():
+            collected.extend(sorted(t.glob("*.nd2")))
+            collected.extend(sorted(t.glob("*.ND2")))
+        elif t.is_file() and t.suffix.lower() == ".nd2":
+            collected.append(t)
+
+    # If only 1 file was given and gallery is requested, expand to all files in that directory
+    if len(collected) == 1 and gallery:
+        parent = collected[0].parent
+        all_in_dir = sorted(parent.glob("*.nd2")) + sorted(parent.glob("*.ND2"))
+        if all_in_dir:
+            return sorted(list(set(all_in_dir)))
+
+    return collected
+
+
 @app.command("view")
 def view_cmd(
-    file: Path = typer.Argument(
+    files: list[Path] = typer.Argument(
         ...,
-        help="Path to the Nikon .nd2 file.",
-        exists=True,
-        readable=True,
-        dir_okay=False,
+        help="Path(s) to Nikon .nd2 file(s) or directories.",
     ),
     mip: bool = typer.Option(
         False,
@@ -86,7 +108,7 @@ def view_cmd(
         None,
         "--channel",
         "-c",
-        help="Channel index (0, 1, ...) or channel name (e.g. 'DAPI', 'GFP'). Default: composite.",
+        help="Channel index or name. Default: composite.",
     ),
     pmin: float = typer.Option(
         1.0,
@@ -103,6 +125,18 @@ def view_cmd(
         "--palette",
         help="Color palette for 2-channel overlay ('auto', 'green-magenta', 'red-green').",
     ),
+    gallery: bool = typer.Option(
+        False,
+        "--gallery",
+        "-g",
+        help="Include all sister .nd2 files in directory for sequential arrow navigation.",
+    ),
+    interactive: bool = typer.Option(
+        False,
+        "--interactive",
+        "-i",
+        help="Open interactive desktop viewer with arrow-key navigation.",
+    ),
     wait: bool = typer.Option(
         False,
         "--wait",
@@ -115,45 +149,173 @@ def view_cmd(
         help="Optional path to also export the rendered image (PNG/TIFF/JPEG).",
     ),
 ) -> None:
-    """Preview an ND2 file instantly in macOS Quick Look (or system viewer)."""
+    """Preview ND2 file(s) in macOS Quick Look or interactive desktop viewer."""
     try:
-        frame = read_preview_frame(
-            file,
-            z=z,
-            t=t,
-            position=position,
-            channel=channel,
-            mip=mip,
-        )
+        nd2_files = collect_nd2_files(files, gallery=gallery)
+        if not nd2_files:
+            err_console.print("[bold red]Error:[/] No .nd2 files found matching input paths.")
+            raise typer.Exit(code=1)
 
-        image = normalize_and_composite(
-            frame.data,
-            p_low=pmin,
-            p_high=pmax,
-            palette=palette,
-        )
+        # If interactive mode requested, launch the desktop viewer
+        if interactive:
+            launch_viewer(
+                files=nd2_files,
+                mip=mip,
+                pmin=pmin,
+                pmax=pmax,
+                palette=palette,
+            )
+            return
+
+        rendered_images = []
+        titles = []
+
+        for f in nd2_files:
+            frame = read_preview_frame(
+                f,
+                z=z,
+                t=t,
+                position=position,
+                channel=channel,
+                mip=mip,
+            )
+            img = normalize_and_composite(
+                frame.data,
+                p_low=pmin,
+                p_high=pmax,
+                palette=palette,
+            )
+            rendered_images.append(img)
+
+            title_tag = f.stem
+            if frame.is_mip:
+                title_tag += "_MIP"
+            elif frame.z_index is not None:
+                title_tag += f"_z{frame.z_index}"
+            titles.append(title_tag)
 
         if output:
             output.parent.mkdir(parents=True, exist_ok=True)
-            image.save(output)
+            rendered_images[0].save(output)
             console.print(f"✨ Saved preview image to [bold green]{output}[/]")
 
-        # Descriptive title for the preview cache
-        title_tag = f"{file.stem}"
-        if frame.is_mip:
-            title_tag += "_MIP"
-        elif frame.z_index is not None:
-            title_tag += f"_z{frame.z_index}"
-        if frame.t_index > 0:
-            title_tag += f"_t{frame.t_index}"
-        if frame.selected_channel is not None:
-            title_tag += f"_ch{frame.selected_channel}"
-
-        show_preview(image, title=title_tag, wait=wait)
+        show_preview(rendered_images, title=titles, wait=wait)
 
     except Exception as exc:
         err_console.print(f"[bold red]Error previewing file:[/] {exc}")
         raise typer.Exit(code=1)
+
+
+@app.command("live")
+def live_cmd(
+    directory: Optional[Path] = typer.Argument(
+        None,
+        help="Optional directory to monitor. Defaults to current Finder directory.",
+    ),
+    mip: bool = typer.Option(
+        False,
+        "--mip",
+        help="Compute Maximum Intensity Projection along the Z-axis.",
+    ),
+    pmin: float = typer.Option(
+        1.0,
+        "--pmin",
+        help="Lower percentile for contrast stretch (default: 1.0).",
+    ),
+    pmax: float = typer.Option(
+        99.8,
+        "--pmax",
+        help="Upper percentile for contrast stretch (default: 99.8).",
+    ),
+    palette: str = typer.Option(
+        "auto",
+        "--palette",
+        help="Color palette for 2-channel overlay ('auto', 'green-magenta', 'red-green').",
+    ),
+) -> None:
+    """Live Finder companion: updates preview as you navigate with arrow keys in Finder."""
+    files: list[Path] = []
+    current_idx = 0
+
+    # Check currently selected file in Finder
+    initial_sel = get_finder_selected_path()
+    if directory and directory.is_dir():
+        files = sorted(directory.glob("*.nd2")) + sorted(directory.glob("*.ND2"))
+    elif initial_sel:
+        files = sorted(initial_sel.parent.glob("*.nd2")) + sorted(initial_sel.parent.glob("*.ND2"))
+        if initial_sel in files:
+            current_idx = files.index(initial_sel)
+
+    if not files and initial_sel:
+        files = [initial_sel]
+
+    console.print("🚀 [bold green]Live Finder Preview started![/]")
+    console.print(
+        "   [dim]Navigate through files in macOS Finder with [bold white]↑ / ↓ arrow keys[/]. "
+        "The preview window updates automatically.[/]"
+    )
+
+    launch_viewer(
+        files=files,
+        current_index=current_idx,
+        watch_finder=True,
+        mip=mip,
+        pmin=pmin,
+        pmax=pmax,
+        palette=palette,
+    )
+
+
+@app.command("browse")
+def browse_cmd(
+    target: Path = typer.Argument(
+        Path("."),
+        help="Directory or .nd2 file to browse sequentially.",
+    ),
+    mip: bool = typer.Option(
+        False,
+        "--mip",
+        help="Compute Maximum Intensity Projection along the Z-axis.",
+    ),
+    pmin: float = typer.Option(
+        1.0,
+        "--pmin",
+        help="Lower percentile for contrast stretch (default: 1.0).",
+    ),
+    pmax: float = typer.Option(
+        99.8,
+        "--pmax",
+        help="Upper percentile for contrast stretch (default: 99.8).",
+    ),
+    palette: str = typer.Option(
+        "auto",
+        "--palette",
+        help="Color palette for 2-channel overlay ('auto', 'green-magenta', 'red-green').",
+    ),
+) -> None:
+    """Browse a folder of .nd2 files sequentially with arrow keys and Z-stepping."""
+    start_idx = 0
+    if target.is_file():
+        folder = target.parent
+        files = sorted(folder.glob("*.nd2")) + sorted(folder.glob("*.ND2"))
+        if target in files:
+            start_idx = files.index(target)
+    else:
+        files = sorted(target.glob("*.nd2")) + sorted(target.glob("*.ND2"))
+
+    if not files:
+        err_console.print(f"[bold red]No .nd2 files found in[/] {target}")
+        raise typer.Exit(code=1)
+
+    launch_viewer(
+        files=files,
+        current_index=start_idx,
+        watch_finder=False,
+        mip=mip,
+        pmin=pmin,
+        pmax=pmax,
+        palette=palette,
+    )
 
 
 @app.command("info")
@@ -299,8 +461,11 @@ def install_action_cmd(
             console.print("🚀 [bold green]Finder Quick Action installed successfully![/]")
             console.print(f"   Location: [cyan]{workflow_path}[/]")
             console.print("\n[bold white]How to use in macOS Finder:[/]")
-            console.print("  1. Right-click any [bold cyan].nd2[/] file.")
-            console.print(f"  2. Select [bold white]Quick Actions[/] ➔ [bold cyan]{name}[/].")
+            console.print("  1. Select one or multiple [bold cyan].nd2[/] files.")
+            console.print(f"  2. Right-click ➔ [bold white]Quick Actions[/] ➔ [bold cyan]{name}[/]")
+            console.print(
+                "  3. In Quick Look, use [bold white]← / → arrow keys[/] to flip through files!"
+            )
             console.print("\n[bold white]To assign a keyboard shortcut:[/]")
             console.print(
                 "  System Settings ➔ Keyboard ➔ Keyboard Shortcuts ➔ Services ➔ Files and Folders."

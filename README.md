@@ -65,25 +65,33 @@ nd2-preview install-finder-action --uninstall
 
 ## 📖 CLI Usage
 
-### 1. Instant Preview (`view`)
+### 1. Sequential Arrow-Key Browsing (`live` & `browse`)
 ```bash
-# Preview central Z-slice (t=0) in Quick Look
+# 🎯 Live Finder Follow-Mode: Stay in Finder, press ↑ / ↓ arrow keys, preview updates automatically!
+nd2-preview live
+
+# 🔍 Interactive Desktop Browser: Flip through files with [← / →], step Z with [[ / ]], toggle MIP with [M]
+nd2-preview browse /path/to/folder
+```
+
+### 2. Multi-File Quick Look Carousel (`view`)
+```bash
+# Preview single file
 nd2-preview view sample.nd2
+
+# Preview all files in folder with Left/Right Arrow navigation in native Quick Look
+nd2-preview view *.nd2
+# or auto-expand sister files in the same directory:
+nd2-preview view sample.nd2 --gallery
 
 # Maximum Intensity Projection (MIP) along Z
 nd2-preview view sample.nd2 --mip
 
 # Specific slice, timepoint, or channel
 nd2-preview view sample.nd2 -z 15 -t 2 -c "GFP"
-
-# Custom contrast percentiles (default: 1.0% to 99.8%)
-nd2-preview view sample.nd2 --pmin 0.5 --pmax 99.9
-
-# Also save the rendered frame to disk
-nd2-preview view sample.nd2 --mip -o preview_mip.png
 ```
 
-### 2. Inspect Rich Metadata (`info`)
+### 3. Inspect Rich Metadata (`info`)
 ```bash
 nd2-preview info sample.nd2
 ```
@@ -100,7 +108,7 @@ For programmatic pipelines, output JSON:
 nd2-preview info sample.nd2 --json
 ```
 
-### 3. Export Normalized Image (`export`)
+### 4. Export Normalized Image (`export`)
 ```bash
 # Export middle Z-slice to PNG
 nd2-preview export sample.nd2 -o snapshot.png

@@ -169,13 +169,18 @@ class InteractiveViewer:
 
         if self.files:
             self.load_current_file()
+        elif self.watch_finder:
+            self.title_label.config(text="Live Finder Mode: Select any .nd2 file in Finder")
 
         if self.watch_finder:
             self._schedule_finder_poll()
 
     def _schedule_finder_poll(self) -> None:
         """Poll macOS Finder for selection updates every 150 ms."""
-        self._check_finder_selection()
+        try:
+            self._check_finder_selection()
+        except Exception:
+            pass
         self.root.after(150, self._schedule_finder_poll)
 
     def _check_finder_selection(self) -> None:
@@ -186,8 +191,12 @@ class InteractiveViewer:
             if sel_path in self.files:
                 self.index = self.files.index(sel_path)
             else:
-                self.files.insert(self.index + 1, sel_path)
-                self.index += 1
+                if not self.files:
+                    self.files = [sel_path]
+                    self.index = 0
+                else:
+                    self.files.insert(self.index + 1, sel_path)
+                    self.index += 1
             self.current_z = None
             self.load_current_file()
 

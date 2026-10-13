@@ -1,0 +1,83 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nd2-preview"
+version = "0.1.0"
+description = "Instant macOS Quick Look preview and metadata inspector for Nikon .nd2 microscopy files"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "Zhuojin", email = "zhuojin@users.noreply.github.com" }
+]
+keywords = [
+    "microscopy",
+    "nd2",
+    "nikon",
+    "quicklook",
+    "bioimaging",
+    "preview",
+    "cli"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: MacOS X",
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Scientific/Engineering :: Image Processing",
+]
+dependencies = [
+    "nd2>=0.10.0",
+    "numpy>=1.24.0",
+    "pillow>=9.5.0",
+    "rich>=13.0.0",
+    "typer>=0.9.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+]
+dev = [
+    "mypy>=1.10.0",
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "ruff>=0.4.0",
+]
+
+[project.scripts]
+nd2-preview = "nd2_preview.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/zhuojin/nd2-preview"
+Repository = "https://github.com/zhuojin/nd2-preview.git"
+Issues = "https://github.com/zhuojin/nd2-preview/issues"
+
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.mypy]
+files = ["src"]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
